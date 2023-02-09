@@ -9,11 +9,9 @@ Use the nightly toolchain to build DS apps (either by using `rustup override nig
 ```txt
 Commands:
   build
-          Builds an executable suitable to run on a 3DS (3dsx)
-  run
-          Builds an executable and sends it to a device with `3dslink`
+          Builds an executable suitable to run on a DS (.nds)
   test
-          Builds a test executable and sends it to a device with `3dslink`
+          Builds a test executable
   help
           Print this message or the help of the given subcommand(s)
 
