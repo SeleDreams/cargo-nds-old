@@ -1,17 +1,16 @@
 [package]
-name = "cargo-3ds"
+name = "cargo-nds"
 version = "0.1.0"
-description = "Cargo wrapper for developing Rust-based Nintendo 3DS homebrew apps"
-repository = "https://github.com/Meziu/cargo-3ds"
+description = "Cargo wrapper for developing Rust-based Nintendo DS homebrew apps"
 license = "MIT"
-authors = ["Andrea Ciliberti <meziu210@icloud.com>"]
+authors = ["SeleDreams <seledreams.contact@gmail.com>","Andrea Ciliberti <meziu210@icloud.com>"]
 edition = "2021"
 
 [dependencies]
-cargo_metadata = "0.14.0"
+cargo_metadata = "0.15.3"
 rustc_version = "0.4.0"
 semver = "1.0.10"
 serde = { version = "1.0.139", features = ['derive'] }
 tee = "0.1.0"
-toml = "0.5.6"
+toml = "0.7.2"
 clap = { version = "4.0.15", features = ["derive", "wrap_help"] }
