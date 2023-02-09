@@ -1,4 +1,4 @@
-# cargo-3ds
+# cargo-nds
 
 Cargo command to work with Nintendo DS project binaries. Based on cargo-3ds.
 
