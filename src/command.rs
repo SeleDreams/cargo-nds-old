@@ -3,7 +3,7 @@ use clap::{Args, Parser, Subcommand};
 #[derive(Parser, Debug)]
 #[command(name = "cargo", bin_name = "cargo")]
 pub enum Cargo {
-    #[command(name = "3ds")]
+    #[command(name = "nds")]
     Input(Input),
 }
 
@@ -22,16 +22,9 @@ pub struct Input {
 #[derive(Subcommand, Debug)]
 #[command(allow_external_subcommands = true)]
 pub enum CargoCmd {
-    /// Builds an executable suitable to run on a 3DS (3dsx).
+    /// Builds an executable suitable to run on a DS (nds).
     Build(RemainingArgs),
 
-    /// Builds an executable and sends it to a device with `3dslink`.
-    Run(Run),
-
-    /// Builds a test executable and sends it to a device with `3dslink`.
-    ///
-    /// This can be used with `--test` for integration tests, or `--lib` for
-    /// unit tests (which require a custom test runner).
     Test(Test),
 
     // NOTE: it seems docstring + name for external subcommands are not rendered
@@ -103,18 +96,8 @@ pub struct Run {
 
 impl CargoCmd {
     /// Whether or not this command should build a 3DSX executable file.
-    pub fn should_build_3dsx(&self) -> bool {
-        matches!(self, Self::Build(_) | Self::Run(_) | Self::Test(_))
-    }
-
-    /// Whether or not the resulting executable should be sent to the 3DS with
-    /// `3dslink`.
-    pub fn should_link_to_device(&self) -> bool {
-        match self {
-            CargoCmd::Test(test) => !test.no_run,
-            CargoCmd::Run(_) => true,
-            _ => false,
-        }
+    pub fn should_build_nds(&self) -> bool {
+        matches!(self, Self::Build(_) | Self::Test(_))
     }
 
     pub const DEFAULT_MESSAGE_FORMAT: &str = "json-render-diagnostics";
@@ -122,7 +105,6 @@ impl CargoCmd {
     pub fn extract_message_format(&mut self) -> Result<Option<String>, String> {
         Self::extract_message_format_from_args(match self {
             CargoCmd::Build(args) => &mut args.args,
-            CargoCmd::Run(run) => &mut run.cargo_args.args,
             CargoCmd::Test(test) => &mut test.run_args.cargo_args.args,
             CargoCmd::Passthrough(args) => args,
         })
@@ -184,46 +166,7 @@ impl RemainingArgs {
 }
 
 impl Run {
-    /// Get the args to pass to `3dslink` based on these options.
-    pub fn get_3dslink_args(&self) -> Vec<String> {
-        let mut args = Vec::new();
-
-        if let Some(address) = self.address {
-            args.extend(["--address".to_string(), address.to_string()]);
-        }
-
-        if let Some(argv0) = &self.argv0 {
-            args.extend(["--arg0".to_string(), argv0.clone()]);
-        }
-
-        if let Some(retries) = self.retries {
-            args.extend(["--retries".to_string(), retries.to_string()]);
-        }
-
-        if self.server {
-            args.push("--server".to_string());
-        }
-
-        let exe_args = self.cargo_args.exe_args();
-        if !exe_args.is_empty() {
-            // For some reason 3dslink seems to want 2 instances of `--`, one
-            // in front of all of the args like this...
-            args.extend(["--args".to_string(), "--".to_string()]);
-
-            let mut escaped = false;
-            for arg in exe_args.iter().cloned() {
-                if arg.starts_with('-') && !escaped {
-                    // And one before the first `-` arg that is passed in.
-                    args.extend(["--".to_string(), arg]);
-                    escaped = true;
-                } else {
-                    args.push(arg);
-                }
-            }
-        }
-
-        args
-    }
+    
 }
 
 #[cfg(test)]
