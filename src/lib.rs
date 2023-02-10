@@ -198,19 +198,10 @@ pub fn get_metadata(messages: &[Message]) -> NTRConfig {
         }
         _ => artifact.target.name,
     };
-
-    let author = match package.authors.as_slice() {
-        [name, ..] => name.clone(),
-        [] => String::from("Unspecified Author"), // as standard with the devkitPRO toolchain
-    };
-
+    let description =
+        (package.description.clone()).unwrap_or_else(|| String::from("Homebrew app;;"));
     NTRConfig {
-        name,
-        author,
-        description: package
-            .description
-            .clone()
-            .unwrap_or_else(|| String::from("Homebrew Application")),
+        name: description,
         icon,
         target_path: artifact.executable.unwrap().into(),
         cargo_manifest_path: package.manifest_path.into(),
@@ -225,7 +216,10 @@ pub fn build_nds(config: &NTRConfig) {
         .arg("-c")
         .arg(config.path_nds())
         .arg("-9")
-        .arg(&config.target_path);
+        .arg(&config.target_path)
+        .arg("-b")
+        .arg(&config.icon)
+        .arg(format!("\"{}\"", &config.name));
     // If romfs directory exists, automatically include it
     let (romfs_path, is_default_romfs) = get_romfs_path(config);
     if romfs_path.is_dir() {
@@ -288,8 +282,6 @@ pub fn get_romfs_path(config: &NTRConfig) -> (PathBuf, bool) {
 #[derive(Deserialize, Default)]
 pub struct NTRConfig {
     name: String,
-    author: String,
-    description: String,
     icon: String,
     target_path: PathBuf,
     cargo_manifest_path: PathBuf,
