@@ -2,7 +2,8 @@ pub mod command;
 
 use crate::command::CargoCmd;
 
-use cargo_metadata::{Message, MetadataCommand};
+use cargo_metadata::camino::Utf8PathBuf;
+use cargo_metadata::{Message, MetadataCommand, Artifact, Package};
 use rustc_version::Channel;
 use semver::Version;
 use serde::Deserialize;
@@ -47,11 +48,7 @@ pub fn run_cargo(cmd: &CargoCmd, message_format: Option<String>) -> (ExitStatus,
 /// Create the cargo build command, but don't execute it.
 /// If there is no pre-built std detected in the sysroot, `build-std` is used.
 pub fn make_cargo_build_command(cmd: &CargoCmd, message_format: &Option<String>) -> Command {
-    let rust_flags = env::var("RUSTFLAGS").unwrap_or_default()
-        + &format!(
-            " -L{}/libnds/lib -lnds9",
-            env::var("DEVKITPRO").expect("DEVKITPRO is not defined as an environment variable")
-        );
+    let rust_flags = env::var("RUSTFLAGS").unwrap_or_default();
     let cargo = env::var("CARGO").unwrap_or_else(|_| "cargo".to_string());
     let sysroot = find_sysroot();
     let mut command = Command::new(cargo);
@@ -74,7 +71,6 @@ pub fn make_cargo_build_command(cmd: &CargoCmd, message_format: &Option<String>)
 
     if !sysroot.join("lib/rustlib/armv5te-none-eabi").exists() {
         eprintln!("No pre-build std found, building core and alloc");
-        command.arg("-Z").arg("build-std=core,alloc");
     }
 
     let cargo_args = match cmd {
@@ -90,11 +86,16 @@ pub fn make_cargo_build_command(cmd: &CargoCmd, message_format: &Option<String>)
 
     command
         .args(cargo_args)
+        .arg("-Z")
+        .arg("build-std=core,alloc")
+        .arg("--target")
+        .arg("armv5te-nintendo-ds.json")
+        .arg("--target")
+        .arg("thumbv4t-nintendo-ds.json")
         .stdout(Stdio::piped())
         .stdin(Stdio::inherit())
         .stderr(Stdio::inherit());
-
-    command
+    return command;
 }
 
 /// Finds the sysroot path of the current toolchain
@@ -160,51 +161,50 @@ pub fn get_metadata(messages: &[Message]) -> NTRConfig {
         .exec()
         .expect("Failed to get cargo metadata");
 
-    let mut package = None;
-    let mut artifact = None;
+    let mut packages: Vec<Package> = Vec::new();
+    let mut artifacts : Vec<Artifact> = Vec::new();
 
     // Extract the final built executable. We may want to fail in cases where
     // multiple executables, or none, were built?
     for message in messages.iter().rev() {
         if let Message::CompilerArtifact(art) = message {
             if art.executable.is_some() {
-                package = Some(metadata[&art.package_id].clone());
-                artifact = Some(art.clone());
-
+                packages.push(metadata[&art.package_id].clone());
+                artifacts.push(art.clone());
                 break;
             }
         }
     }
-    if package.is_none() || artifact.is_none() {
+    if packages.is_empty() || artifacts.is_empty() {
         eprintln!("No executable found from build command output!");
         process::exit(1);
     }
-
-    let (package, artifact) = (package.unwrap(), artifact.unwrap());
 
     let mut icon = String::from("./icon.bmp");
 
     if !Path::new(&icon).exists() {
         icon = format!("{}/libnds/icon.bmp", env::var("DEVKITPRO").unwrap());
     }
-
-    // for now assume a single "kind" since we only support one output artifact
-    let name = match artifact.target.kind[0].as_ref() {
-        "bin" | "lib" | "rlib" | "dylib" if artifact.target.test => {
-            format!("{} tests", artifact.target.name)
-        }
-        "example" => {
-            format!("{} - {} example", artifact.target.name, package.name)
-        }
-        _ => artifact.target.name,
-    };
     let description =
-        (package.description.clone()).unwrap_or_else(|| String::from("Homebrew app;;"));
+        (packages[0].description.clone()).unwrap_or_else(|| String::from("Homebrew app;;"));
+    let mut arm7 : Utf8PathBuf = Utf8PathBuf::new();
+    let mut arm9 : Utf8PathBuf = Utf8PathBuf::new();
+    for i in artifacts {
+        let executable = i.executable.unwrap();
+        if executable.as_str().contains(".arm9_elf"){
+            arm9 = executable;
+        }
+        else if executable.as_str().contains(".arm7_elf")
+        {
+            arm7 = executable;
+        }
+    }
     NTRConfig {
         name: description,
         icon,
-        target_path: artifact.executable.unwrap().into(),
-        cargo_manifest_path: package.manifest_path.into(),
+        arm7_path: arm7.into(),
+        arm9_path: arm9.into(),
+        cargo_manifest_path: packages[0].manifest_path.clone().into(),
     }
 }
 
@@ -212,14 +212,31 @@ pub fn get_metadata(messages: &[Message]) -> NTRConfig {
 /// This will fail if `ndstool` is not within the running directory or in a directory found in $PATH
 pub fn build_nds(config: &NTRConfig) {
     let mut command = Command::new("ndstool");
-    let mut process = command
+    let mut process : &mut Command;
+    if config.arm7_path.to_str().unwrap().is_empty()
+    {
+        process = command
         .arg("-c")
         .arg(config.path_nds())
         .arg("-9")
-        .arg(&config.target_path)
+        .arg(&config.arm9_path)
         .arg("-b")
         .arg(&config.icon)
         .arg(format!("\"{}\"", &config.name));
+    }
+    else {
+        process = command
+        .arg("-c")
+        .arg(config.path_nds())
+        .arg("-9")
+        .arg(&config.arm9_path)
+        .arg("-7")
+        .arg(&config.arm7_path)
+        .arg("-b")
+        .arg(&config.icon)
+        .arg(format!("\"{}\"", &config.name));
+    }
+    
     // If romfs directory exists, automatically include it
     let (romfs_path, is_default_romfs) = get_romfs_path(config);
     if romfs_path.is_dir() {
@@ -283,13 +300,14 @@ pub fn get_romfs_path(config: &NTRConfig) -> (PathBuf, bool) {
 pub struct NTRConfig {
     name: String,
     icon: String,
-    target_path: PathBuf,
+    arm9_path: PathBuf,
+    arm7_path: PathBuf,
     cargo_manifest_path: PathBuf,
 }
 
 impl NTRConfig {
     pub fn path_nds(&self) -> PathBuf {
-        self.target_path.with_extension("nds")
+        self.arm9_path.with_extension("nds")
     }
 }
 
