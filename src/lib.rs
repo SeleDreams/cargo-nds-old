@@ -7,6 +7,7 @@ use cargo_metadata::{Message, MetadataCommand, Artifact, Package};
 use rustc_version::Channel;
 use semver::Version;
 use serde::Deserialize;
+use serde::de::IntoDeserializer;
 use tee::TeeReader;
 
 use core::fmt;
@@ -71,6 +72,9 @@ pub fn make_cargo_build_command(cmd: &CargoCmd, message_format: &Option<String>)
 
     if !sysroot.join("lib/rustlib/armv5te-none-eabi").exists() {
         eprintln!("No pre-build std found, building core and alloc");
+        command.arg("-Zbuild-std=core,alloc")
+        .arg("--target").arg("armv5te-nintendo-ds.json")
+        .arg("--target").arg("thumbv4t-nintendo-ds.json");
     }
 
     let cargo_args = match cmd {
@@ -86,16 +90,11 @@ pub fn make_cargo_build_command(cmd: &CargoCmd, message_format: &Option<String>)
 
     command
         .args(cargo_args)
-        .arg("-Z")
-        .arg("build-std=core,alloc")
-        .arg("--target")
-        .arg("armv5te-nintendo-ds.json")
-        .arg("--target")
-        .arg("thumbv4t-nintendo-ds.json")
         .stdout(Stdio::piped())
         .stdin(Stdio::inherit())
         .stderr(Stdio::inherit());
-    return command;
+
+    command
 }
 
 /// Finds the sysroot path of the current toolchain
@@ -171,10 +170,10 @@ pub fn get_metadata(messages: &[Message]) -> NTRConfig {
             if art.executable.is_some() {
                 packages.push(metadata[&art.package_id].clone());
                 artifacts.push(art.clone());
-                break;
             }
         }
     }
+    println!("artifacts count : {}",artifacts.len());
     if packages.is_empty() || artifacts.is_empty() {
         eprintln!("No executable found from build command output!");
         process::exit(1);
@@ -191,19 +190,20 @@ pub fn get_metadata(messages: &[Message]) -> NTRConfig {
     let mut arm9 : Utf8PathBuf = Utf8PathBuf::new();
     for i in artifacts {
         let executable = i.executable.unwrap();
-        if executable.as_str().contains(".arm9_elf"){
-            arm9 = executable;
-        }
-        else if executable.as_str().contains(".arm7_elf")
+        if executable.extension().unwrap() == "arm9_elf"
         {
-            arm7 = executable;
+            arm9 = executable.clone();
+        }
+        else if executable.extension().unwrap() == "arm7_elf"
+        {
+            arm7 = executable.clone();
         }
     }
     NTRConfig {
         name: description,
         icon,
-        arm7_path: arm7.into(),
-        arm9_path: arm9.into(),
+        arm7_path: arm7.to_owned().into(),
+        arm9_path: arm9.to_owned().into(),
         cargo_manifest_path: packages[0].manifest_path.clone().into(),
     }
 }
@@ -213,8 +213,9 @@ pub fn get_metadata(messages: &[Message]) -> NTRConfig {
 pub fn build_nds(config: &NTRConfig) {
     let mut command = Command::new("ndstool");
     let mut process : &mut Command;
-    if config.arm7_path.to_str().unwrap().is_empty()
+    if (&config).arm7_path.as_os_str().is_empty()
     {
+        println!("No ARM7 provided, building arm9-only binary");
         process = command
         .arg("-c")
         .arg(config.path_nds())
@@ -225,6 +226,7 @@ pub fn build_nds(config: &NTRConfig) {
         .arg(format!("\"{}\"", &config.name));
     }
     else {
+        println!("ARM7 detected, building binary containing both arm9 and arm7");
         process = command
         .arg("-c")
         .arg(config.path_nds())
@@ -236,7 +238,7 @@ pub fn build_nds(config: &NTRConfig) {
         .arg(&config.icon)
         .arg(format!("\"{}\"", &config.name));
     }
-    
+   
     // If romfs directory exists, automatically include it
     let (romfs_path, is_default_romfs) = get_romfs_path(config);
     if romfs_path.is_dir() {
