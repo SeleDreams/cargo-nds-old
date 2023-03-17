@@ -181,8 +181,10 @@ pub fn get_metadata(messages: &[Message]) -> NTRConfig {
 
     let mut icon = String::from("./icon.bmp");
 
+    let devkitpro = env::var("DEVKITPRO").unwrap_or_else(|_| String::from("/opt/devkitpro"));
+
     if !Path::new(&icon).exists() {
-        icon = format!("{}/libnds/icon.bmp", env::var("DEVKITPRO").unwrap());
+        icon = format!("{}/libnds/icon.bmp", devkitpro);
     }
     let description =
         (packages[0].description.clone()).unwrap_or_else(|| String::from("Homebrew app;;"));
